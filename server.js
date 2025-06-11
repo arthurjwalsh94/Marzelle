@@ -1,10 +1,10 @@
 // server.js
-const express        = require("express");
-const http           = require("http");
-const { createClient } = require("@deepgram/sdk");
-const { OpenAI }     = require("openai");
-const { Server }     = require("socket.io");
-const dotenv         = require("dotenv");
+const express         = require("express");
+const http            = require("http");
+const { createClient }= require("@deepgram/sdk");
+const { OpenAI }      = require("openai");
+const { Server }      = require("socket.io");
+const dotenv          = require("dotenv");
 dotenv.config();
 
 // ——— Deepgram & OpenAI clients —————————————————————————————————————
@@ -15,7 +15,9 @@ const openai         = new OpenAI({ apiKey: process.env.OPENAI_KEY });
 let memory = [
   {
     role: "system",
-    content: "You are Marzelle, an eccentric glass-mosaic alien producer. Speak in clipped, dry sentences. End jokes with a soft robotic chuckle: *k-ch*."
+    content:
+      "You are Marzelle, an eccentric glass-mosaic alien producer. " +
+      "Speak in clipped, dry sentences. End jokes with a soft robotic chuckle: *k-ch*."
   }
 ];
 
@@ -45,12 +47,54 @@ const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server);
 
+// enable JSON parsing for TTS endpoint
+app.use(express.json());      
+
 app.use(express.static("public"));
 app.get("/", (req, res) => {
   res.sendFile(__dirname + "/public/index.html");
 });
 
-// ——— Project‐key management endpoints (optional) ————————————————
+// ——— ElevenLabs TTS proxy ————————————————————————————————————————
+app.post("/tts", async (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.sendStatus(400);
+
+  try {
+    const elevenRes = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_VOICE_ID}/stream`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "xi-api-key":     process.env.ELEVEN_KEY
+        },
+        body: JSON.stringify({
+          text,
+          model_id:      "eleven_multilingual_v1",
+          voice_settings:{ stability: 0.75, similarity_boost: 0.75 }
+        })
+      }
+    );
+
+    if (!elevenRes.ok) {
+      console.error("TTS error:", await elevenRes.text());
+      return res.sendStatus(502);
+    }
+
+    // convert to Node Buffer and send
+    const arrayBuffer = await elevenRes.arrayBuffer();
+    const audioBuffer = Buffer.from(arrayBuffer);
+
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.send(audioBuffer);
+  } catch (err) {
+    console.error("Fetch TTS error:", err);
+    res.sendStatus(500);
+  }
+});
+
+// ——— Project-key management endpoints (optional) ——————————————————————
 const getProjectId = async () => {
   const { result, error } = await deepgramClient.manage.getProjects();
   if (error) throw error;
@@ -60,11 +104,7 @@ const getProjectId = async () => {
 const getTempApiKey = async (projectId) => {
   const { result, error } = await deepgramClient.manage.createProjectKey(
     projectId,
-    {
-      comment: "short lived",
-      scopes: ["usage:write"],
-      time_to_live_in_seconds: 20,
-    }
+    { comment: "short lived", scopes: ["usage:write"], time_to_live_in_seconds: 20 }
   );
   if (error) throw error;
   return result;
@@ -76,7 +116,7 @@ app.get("/key", async (req, res) => {
   res.json(key);
 });
 
-// ——— Socket.IO for transcripts → LLM → responses —————————————
+// ——— Socket.IO for transcripts → LLM → responses —————————————————————
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
@@ -88,9 +128,7 @@ io.on("connection", (socket) => {
       socket.emit("assistantResponse", { response: assistantReply });
     } catch (err) {
       console.error("Error in askMarzelle:", err);
-      socket.emit("assistantResponse", {
-        response: "Oops, something broke in Marzelle's mind.",
-      });
+      socket.emit("assistantResponse", { response: "Oops, something broke in Marzelle's mind." });
     }
   });
 });

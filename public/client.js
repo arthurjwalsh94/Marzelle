@@ -1,6 +1,24 @@
 // public/client.js
 const captions = document.getElementById("captions");
 
+// Play TTS from server
+async function playTTS(text) {
+  try {
+    const resp = await fetch("/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text })
+    });
+    if (!resp.ok) throw new Error(`TTS failed: ${resp.status}`);
+    const blob = await resp.blob();
+    const url  = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    await audio.play();
+  } catch (err) {
+    console.error("TTS playback error:", err);
+  }
+}
+
 async function getMicrophone() {
   const userMedia = await navigator.mediaDevices.getUserMedia({ audio: true });
   return new MediaRecorder(userMedia);
@@ -71,6 +89,8 @@ window.addEventListener("load", async () => {
   chatSocket.on("assistantResponse", ({ response }) => {
     console.log("🪸 Marzelle ▸", response);
     captions.innerHTML = `<span class="marzelle">${response}</span>`;
+    // play Marzelle's voice
+    playTTS(response);
   });
 
   // 2) Deepgram STT setup
