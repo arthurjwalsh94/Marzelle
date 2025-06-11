@@ -47,12 +47,19 @@ const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server);
 
-// enable JSON parsing for TTS endpoint
-app.use(express.json());      
-
+// JSON parsing for TTS
+app.use(express.json());
 app.use(express.static("public"));
+
+// serve homepage
 app.get("/", (req, res) => {
   res.sendFile(__dirname + "/public/index.html");
+});
+
+// ——— Deepgram key endpoint ————————————————————————————————————————
+// Serve the static API key from env rather than dynamic project keys
+app.get("/key", (req, res) => {
+  res.json({ key: process.env.DEEPGRAM_API_KEY });
 });
 
 // ——— ElevenLabs TTS proxy ————————————————————————————————————————
@@ -82,38 +89,14 @@ app.post("/tts", async (req, res) => {
       return res.sendStatus(502);
     }
 
-    // convert to Node Buffer and send
     const arrayBuffer = await elevenRes.arrayBuffer();
     const audioBuffer = Buffer.from(arrayBuffer);
-
     res.setHeader("Content-Type", "audio/mpeg");
     res.send(audioBuffer);
   } catch (err) {
     console.error("Fetch TTS error:", err);
     res.sendStatus(500);
   }
-});
-
-// ——— Project-key management endpoints (optional) ——————————————————————
-const getProjectId = async () => {
-  const { result, error } = await deepgramClient.manage.getProjects();
-  if (error) throw error;
-  return result.projects[0].project_id;
-};
-
-const getTempApiKey = async (projectId) => {
-  const { result, error } = await deepgramClient.manage.createProjectKey(
-    projectId,
-    { comment: "short lived", scopes: ["usage:write"], time_to_live_in_seconds: 20 }
-  );
-  if (error) throw error;
-  return result;
-};
-
-app.get("/key", async (req, res) => {
-  const projectId = await getProjectId();
-  const key       = await getTempApiKey(projectId);
-  res.json(key);
 });
 
 // ——— Socket.IO for transcripts → LLM → responses —————————————————————
