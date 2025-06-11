@@ -91,6 +91,15 @@ body {
   height: 60px;
   position: absolute;
   margin: 21px;
+  display: none;
+}
+
+/* Hide the visual circles (blue/red) but keep them clickable */
+.button,
+#circlein {
+  background: transparent !important; /* remove color */
+  box-shadow: none !important;        /* remove glow */
+  opacity: 0;                         /* fully invisible */
 }
 
 .captions {
